@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { AppData, Patient, SoapNote, InventoryItem, InventoryTransaction, InformedConsent, DeclinationLetter, SickLeave, ReferralLetter, Prescription, FitnessCertificate, TriageEntry, Transaction, DoctorProfile as DoctorProfileType } from './types';
 import { saveToFile, loadFromFile, getInitialData } from './utils/storage';
-import { saveToDB, loadFromDB } from './utils/db';
+import { saveToDB, loadFromDB, dumpAllData, forceBackup, loadBackupFromDB } from './utils/db';
 import { PatientManagement } from './components/PatientManagement';
 import { SoapNotes } from './components/SoapNotes';
 import { InventoryManagement } from './components/InventoryManagement';
@@ -17,7 +17,7 @@ import { SaveStatus } from './components/SaveStatus';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { toast, Toaster } from 'sonner';
-import { Save, Upload, Users, FileText, Package, Activity, FileCheck2, ClipboardList, DollarSign, Cake, UserCircle, SearchCheck, BarChart3 } from 'lucide-react';
+import { Save, Upload, Users, FileText, Package, Activity, FileCheck2, ClipboardList, DollarSign, Cake, UserCircle, SearchCheck, BarChart3, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   const [appData, setAppData] = useState<AppData>(getInitialData());
@@ -27,6 +27,24 @@ export default function App() {
   const [inventoryTabState, setInventoryTabState] = useState<{ tab: string; filterId?: string; filterDate?: string }>({ tab: 'inventory' });
   const [soapNotesFilter, setSoapNotesFilter] = useState<{ patientId?: string; date?: string }>({});
   const [documentsFilter, setDocumentsFilter] = useState<{ documentId?: string; documentType?: string; date?: string }>({});
+
+  // Database save status tracking
+  const [dbSaveStatus, setDbSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const saveFailCountRef = useRef(0);
+  const hasTriggeredAutoDownloadRef = useRef(false);
+
+  // Auto-download backup when saves fail repeatedly
+  const triggerEmergencyBackup = useCallback(() => {
+    if (hasTriggeredAutoDownloadRef.current) return;
+    hasTriggeredAutoDownloadRef.current = true;
+
+    toast.error('CRITICAL: Auto-saving your data to file due to repeated database failures!', {
+      duration: 10000,
+    });
+
+    // Force download current data
+    saveToFile(appData);
+  }, [appData]);
 
   // Load from IndexedDB on mount
   useEffect(() => {
@@ -51,6 +69,7 @@ export default function App() {
           }
 
           setAppData(data);
+          setDbSaveStatus('saved');
           toast.success('Session loaded');
         }
       } catch (error) {
@@ -64,12 +83,37 @@ export default function App() {
     initData();
   }, []);
 
-  // Auto-save to IndexedDB
+  // Auto-save to IndexedDB with error handling
   useEffect(() => {
     if (isLoaded) {
-      saveToDB(appData).catch(err => console.error('Auto-save failed:', err));
+      setDbSaveStatus('saving');
+      saveToDB(appData)
+        .then(() => {
+          setDbSaveStatus('saved');
+          saveFailCountRef.current = 0; // Reset fail count on success
+          hasTriggeredAutoDownloadRef.current = false; // Allow future auto-downloads
+        })
+        .catch(err => {
+          console.error('Auto-save failed:', err);
+          setDbSaveStatus('error');
+          saveFailCountRef.current += 1;
+
+          if (saveFailCountRef.current >= 3) {
+            triggerEmergencyBackup();
+          } else {
+            toast.error(
+              <div className="flex flex-col gap-2">
+                <span>Failed to save to browser database! ({saveFailCountRef.current}/3)</span>
+                <Button size="sm" variant="destructive" onClick={() => saveToFile(appData)}>
+                  Download Backup Now
+                </Button>
+              </div>,
+              { duration: 10000 }
+            );
+          }
+        });
     }
-  }, [appData, isLoaded]);
+  }, [appData, isLoaded, triggerEmergencyBackup]);
 
   // Reset state when navigating away
   useEffect(() => {
@@ -356,6 +400,33 @@ export default function App() {
               <p className="text-muted-foreground">Comprehensive practice management solution</p>
             </div>
             <div className="flex gap-3 items-center">
+              {/* Database Save Status Indicator */}
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs">
+                {dbSaveStatus === 'saving' && (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                    <span className="text-yellow-600">Menyimpan...</span>
+                  </>
+                )}
+                {dbSaveStatus === 'saved' && (
+                  <>
+                    <CheckCircle2 className="w-3 h-3 text-green-600" />
+                    <span className="text-green-600">Tersimpan</span>
+                  </>
+                )}
+                {dbSaveStatus === 'error' && (
+                  <>
+                    <AlertTriangle className="w-3 h-3 text-red-600" />
+                    <span className="text-red-600">Gagal Simpan!</span>
+                  </>
+                )}
+                {dbSaveStatus === 'idle' && (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-gray-400" />
+                    <span className="text-gray-500">Idle</span>
+                  </>
+                )}
+              </div>
               <SaveStatus appData={appData} onLoadFromFile={(d) => setAppData(d)} />
               <Button variant="outline" onClick={handleLoadFromFile} className="hover:scale-105 transition-transform">
                 <Upload className="w-4 h-4 mr-2" />
@@ -708,6 +779,10 @@ export default function App() {
             <DoctorProfile
               profile={appData.doctorProfile}
               onSaveProfile={handleSaveDoctorProfile}
+              onLoadBackup={(data) => {
+                setAppData(data);
+                toast.success('Backup restored! Your data has been rolled back.');
+              }}
             />
           </TabsContent>
         </Tabs>

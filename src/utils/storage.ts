@@ -18,19 +18,40 @@ export const loadFromFile = (): Promise<AppData> => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json';
-    
+
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) {
         reject(new Error('No file selected'));
         return;
       }
-      
+
       const reader = new FileReader();
       reader.onload = (event) => {
         try {
-          const data = JSON.parse(event.target?.result as string);
-          resolve(data);
+          const parsed = JSON.parse(event.target?.result as string);
+
+          // Check if this is a rescue dump (contains 'latest' key with nested AppData)
+          if (parsed.latest && typeof parsed.latest === 'object' && parsed.latest.patients) {
+            console.log('Detected rescue dump format, extracting "latest" data');
+            resolve(parsed.latest);
+            return;
+          }
+
+          // Check if this is a backup entry (has 'data' property with nested AppData)
+          if (parsed.data && typeof parsed.data === 'object' && parsed.data.patients) {
+            console.log('Detected backup entry format, extracting "data" property');
+            resolve(parsed.data);
+            return;
+          }
+
+          // Validate that the parsed data looks like AppData
+          if (!parsed.patients || !Array.isArray(parsed.patients)) {
+            reject(new Error('Invalid data format: missing "patients" array. This file may not be a valid IV Drip Bar data file.'));
+            return;
+          }
+
+          resolve(parsed);
         } catch (error) {
           reject(new Error('Invalid JSON file'));
         }
@@ -38,7 +59,7 @@ export const loadFromFile = (): Promise<AppData> => {
       reader.onerror = () => reject(new Error('Failed to read file'));
       reader.readAsText(file);
     };
-    
+
     input.click();
   });
 };
@@ -107,8 +128,29 @@ export async function writeToHandle(handle: FileHandle, data: AppData) {
 export async function readFromHandle(handle: FileHandle): Promise<AppData> {
   const file = await handle.getFile();
   const text = await file.text();
-  return JSON.parse(text);
+  const parsed = JSON.parse(text);
+
+  // Check if this is a rescue dump (contains 'latest' key with nested AppData)
+  if (parsed.latest && typeof parsed.latest === 'object' && parsed.latest.patients) {
+    // This is a rescue dump - extract the 'latest' data
+    console.log('Detected rescue dump format, extracting "latest" data');
+    return parsed.latest;
+  }
+
+  // Check if this is a backup entry (has 'data' property with nested AppData)
+  if (parsed.data && typeof parsed.data === 'object' && parsed.data.patients) {
+    console.log('Detected backup entry format, extracting "data" property');
+    return parsed.data;
+  }
+
+  // Validate that the parsed data looks like AppData
+  if (!parsed.patients || !Array.isArray(parsed.patients)) {
+    throw new Error('Invalid data format: missing or invalid "patients" array. This file may not be a valid IV Drip Bar data file.');
+  }
+
+  return parsed;
 }
+
 
 // Session-scoped handle cache
 let cachedHandle: FileHandle | null = null;
