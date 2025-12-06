@@ -13,7 +13,7 @@ import { DoctorProfile } from './components/DoctorProfile';
 import { PatientTransactionTrace } from './components/PatientTransactionTrace';
 import { Analytics } from './components/Analytics';
 import { Button } from './components/ui/button';
-import { SaveStatus } from './components/SaveStatus';
+import { CloudSyncIndicator } from './components/CloudSyncIndicator';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { toast, Toaster } from 'sonner';
@@ -46,29 +46,70 @@ export default function App() {
     saveToFile(appData);
   }, [appData]);
 
-  // Load from IndexedDB on mount
+  // Load from IndexedDB on mount (with cloud-first logic if signed in)
   useEffect(() => {
     const initData = async () => {
       try {
-        const saved = await loadFromDB();
-        if (saved) {
-          // Migrate old data if needed (same logic as before)
-          const data = saved;
-          if (!data.transactions) data.transactions = [];
-          if (!data.referralLetters) data.referralLetters = [];
-          if (!data.prescriptions) data.prescriptions = [];
-          if (!data.fitnessCertificates) data.fitnessCertificates = [];
-          if (!data.doctorProfile) data.doctorProfile = undefined;
+        // First, load from IndexedDB (cache)
+        let localData = await loadFromDB();
 
-          // Migrate inventory items to include brandName
-          if (data.inventory) {
-            data.inventory = data.inventory.map((item: any) => ({
+        // Apply migrations to local data
+        if (localData) {
+          if (!localData.transactions) localData.transactions = [];
+          if (!localData.referralLetters) localData.referralLetters = [];
+          if (!localData.prescriptions) localData.prescriptions = [];
+          if (!localData.fitnessCertificates) localData.fitnessCertificates = [];
+          if (!localData.doctorProfile) localData.doctorProfile = undefined;
+          if (localData.inventory) {
+            localData.inventory = localData.inventory.map((item: InventoryItem & { genericName?: string }) => ({
               ...item,
               brandName: item.brandName || item.genericName || 'N/A'
             }));
           }
+        }
 
-          setAppData(data);
+        // Check if we should load from Google Drive (if signed in)
+        // This runs after a short delay to let Google APIs initialize
+        setTimeout(async () => {
+          try {
+            const { isSignedIn, loadFromGoogleDrive, getLocalDataStats } = await import('./utils/googleDrive');
+
+            if (isSignedIn()) {
+              const cloudData = await loadFromGoogleDrive<AppData>();
+
+              if (cloudData) {
+                // Compare cloud vs local data
+                const localPatients = localData?.patients?.length || 0;
+                const cloudPatients = cloudData.patients?.length || 0;
+                const localTransactions = localData?.transactions?.length || 0;
+                const cloudTransactions = cloudData.transactions?.length || 0;
+
+                // If cloud has significantly more data, use cloud (reservoir > cache)
+                if (cloudPatients > localPatients * 1.1 || cloudTransactions > localTransactions * 1.1) {
+                  console.log(`Cloud has more data (${cloudPatients} patients vs ${localPatients} local). Loading from cloud.`);
+
+                  // Apply same migrations to cloud data
+                  if (!cloudData.transactions) cloudData.transactions = [];
+                  if (!cloudData.referralLetters) cloudData.referralLetters = [];
+                  if (!cloudData.prescriptions) cloudData.prescriptions = [];
+                  if (!cloudData.fitnessCertificates) cloudData.fitnessCertificates = [];
+                  if (!cloudData.doctorProfile) cloudData.doctorProfile = undefined;
+
+                  setAppData(cloudData);
+                  toast.success(`Data dimuat dari Cloud (${cloudPatients} pasien, ${cloudTransactions} transaksi)`);
+
+                  // Also update IndexedDB cache with complete data
+                  await saveToDB(cloudData);
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Cloud check failed:', err);
+          }
+        }, 2000); // Wait for Google APIs to init
+
+        if (localData) {
+          setAppData(localData);
           setDbSaveStatus('saved');
           toast.success('Session loaded');
         }
@@ -427,15 +468,7 @@ export default function App() {
                   </>
                 )}
               </div>
-              <SaveStatus appData={appData} onLoadFromFile={(d) => setAppData(d)} />
-              <Button variant="outline" onClick={handleLoadFromFile} className="hover:scale-105 transition-transform">
-                <Upload className="w-4 h-4 mr-2" />
-                Import File
-              </Button>
-              <Button onClick={handleSaveToFile} className="hover:scale-105 transition-transform">
-                <Save className="w-4 h-4 mr-2" />
-                Export File
-              </Button>
+              <CloudSyncIndicator appData={appData} onLoadFromCloud={(d) => setAppData(d)} />
             </div>
           </div>
         </div>
@@ -779,6 +812,7 @@ export default function App() {
             <DoctorProfile
               profile={appData.doctorProfile}
               onSaveProfile={handleSaveDoctorProfile}
+              appData={appData}
               onLoadBackup={(data) => {
                 setAppData(data);
                 toast.success('Backup restored! Your data has been rolled back.');

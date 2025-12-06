@@ -13,7 +13,7 @@ import { AppData } from '../types';
 
 // Helper to create mock AppData
 const createMockAppData = (id: number): AppData => ({
-    patients: [{ id: `patient-${id}`, name: `Patient ${id}`, dateOfBirth: '1990-01-01', gender: 'Male', phone: '123', address: 'Test', bloodType: 'A+' }],
+    patients: [{ id: `patient-${id}`, name: `Patient ${id}`, dob: '1990-01-01', gender: 'Male', phone: '123', createdAt: new Date().toISOString() }],
     transactions: [],
     soapNotes: [],
     inventory: [],
@@ -199,11 +199,10 @@ describe('File Storage - EXTREME TESTS', () => {
             validData.patients.push({
                 id: 'patient-2',
                 name: 'Patient 2',
-                dateOfBirth: '1990-01-01',
+                dob: '1990-01-01',
                 gender: 'Female',
                 phone: '456',
-                address: 'Test 2',
-                bloodType: 'B+'
+                createdAt: new Date().toISOString()
             });
 
             const isValid = validData.patients && Array.isArray(validData.patients);
@@ -275,11 +274,10 @@ describe('File Storage - EXTREME TESTS', () => {
                 appData.patients.push({
                     id: `patient-${i + 2}`,
                     name: `Patient ${i + 2} with a very long name that might cause issues`,
-                    dateOfBirth: '1990-01-01',
+                    dob: '1990-01-01',
                     gender: i % 2 === 0 ? 'Male' : 'Female',
                     phone: `+1-555-${String(i).padStart(4, '0')}`,
-                    address: `${i} Test Street, Suite ${i}, Test City, Test State 12345-${i}`,
-                    bloodType: ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'][i % 8]
+                    createdAt: new Date().toISOString()
                 });
             }
 
@@ -295,17 +293,15 @@ describe('File Storage - EXTREME TESTS', () => {
             appData.patients[0] = {
                 id: 'patient-special',
                 name: '이름 名前 имя 🏥 <script>alert("xss")</script>',
-                dateOfBirth: '1990-01-01',
+                dob: '1990-01-01',
                 gender: 'Other',
                 phone: '+81-3-1234-5678',
-                address: '東京都渋谷区\n"quoted" & special < > chars',
-                bloodType: 'O+'
+                createdAt: new Date().toISOString()
             };
 
             const rescueDump = createRescueDump(appData);
 
             expect(rescueDump.latest.patients[0].name).toContain('🏥');
-            expect(rescueDump.latest.patients[0].address).toContain('東京都');
         });
     });
 });

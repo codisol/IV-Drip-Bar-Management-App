@@ -6,18 +6,21 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Textarea } from './ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { UserCircle, Building2, MapPin, FileText, Stethoscope, Phone, Mail, Download, AlertTriangle, RefreshCw, History, Clock, Calendar } from 'lucide-react';
+import { UserCircle, Building2, MapPin, FileText, Stethoscope, Phone, Mail, Download, AlertTriangle, RefreshCw, History, Clock, Calendar, Upload as CloudUpload } from 'lucide-react';
 import { toast } from 'sonner';
 import { dumpAllData, forceBackup, getAllBackups, loadBackupByKey, BackupInfo } from '../utils/db';
+import { listCloudBackups, restoreFromCloudBackup, CloudBackupInfo, isSignedIn, createCloudBackup } from '../utils/googleDrive';
 import { AppData } from '../types';
+import { StorageIndicator } from './StorageIndicator';
 
 interface DoctorProfileProps {
   profile?: DoctorProfileType;
   onSaveProfile: (profile: DoctorProfileType) => void;
   onLoadBackup?: (data: AppData) => void;
+  appData: AppData;
 }
 
-export function DoctorProfile({ profile, onSaveProfile, onLoadBackup }: DoctorProfileProps) {
+export function DoctorProfile({ profile, onSaveProfile, onLoadBackup, appData }: DoctorProfileProps) {
   const [formData, setFormData] = useState<DoctorProfileType>(
     profile || {
       doctorName: '',
@@ -33,13 +36,32 @@ export function DoctorProfile({ profile, onSaveProfile, onLoadBackup }: DoctorPr
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [hourlyBackups, setHourlyBackups] = useState<BackupInfo[]>([]);
   const [dailyBackups, setDailyBackups] = useState<BackupInfo[]>([]);
+  const [cloudBackups, setCloudBackups] = useState<CloudBackupInfo[]>([]);
+  const [cloudHourlyBackups, setCloudHourlyBackups] = useState<CloudBackupInfo[]>([]);
+  const [cloudDailyBackups, setCloudDailyBackups] = useState<CloudBackupInfo[]>([]);
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
+  const [isLoadingCloudBackups, setIsLoadingCloudBackups] = useState(false);
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
+  const [isCloudConnected, setIsCloudConnected] = useState(false);
 
-  // Load backup list on mount
+  // Load backup list on mount and poll for cloud connection
   useEffect(() => {
     loadBackupList();
-  }, []);
+    checkCloudConnection();
+
+    // Poll for cloud connection changes every 3 seconds
+    const pollInterval = setInterval(() => {
+      const connected = isSignedIn();
+      if (connected !== isCloudConnected) {
+        setIsCloudConnected(connected);
+        if (connected) {
+          loadCloudBackupList();
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [isCloudConnected]);
 
   const loadBackupList = async () => {
     setIsLoadingBackups(true);
@@ -51,6 +73,29 @@ export function DoctorProfile({ profile, onSaveProfile, onLoadBackup }: DoctorPr
       console.error('Failed to load backup list:', error);
     } finally {
       setIsLoadingBackups(false);
+    }
+  };
+
+  const checkCloudConnection = async () => {
+    const connected = isSignedIn();
+    setIsCloudConnected(connected);
+    if (connected) {
+      await loadCloudBackupList();
+    }
+  };
+
+  const loadCloudBackupList = async () => {
+    setIsLoadingCloudBackups(true);
+    try {
+      const backups = await listCloudBackups();
+      setCloudBackups(backups);
+      // Separate into hourly and daily
+      setCloudHourlyBackups(backups.filter(b => b.type === 'hourly'));
+      setCloudDailyBackups(backups.filter(b => b.type === 'daily'));
+    } catch (error) {
+      console.error('Failed to load cloud backups:', error);
+    } finally {
+      setIsLoadingCloudBackups(false);
     }
   };
 
@@ -113,6 +158,24 @@ export function DoctorProfile({ profile, onSaveProfile, onLoadBackup }: DoctorPr
     }
   };
 
+  const handleForceCloudBackup = async () => {
+    setIsBackingUp(true);
+    try {
+      const success = await createCloudBackup(appData, 'hourly');
+      if (success) {
+        toast.success('Cloud backup created!');
+        await loadCloudBackupList();
+      } else {
+        toast.error('Failed to create cloud backup');
+      }
+    } catch (error) {
+      console.error('Cloud backup failed:', error);
+      toast.error('Cloud backup failed');
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
   const handleRestoreBackup = async (key: string, label: string) => {
     if (!onLoadBackup) {
       toast.error('Restore function not available');
@@ -131,6 +194,29 @@ export function DoctorProfile({ profile, onSaveProfile, onLoadBackup }: DoctorPr
     } catch (error) {
       console.error('Restore backup failed:', error);
       toast.error('Failed to restore backup');
+    } finally {
+      setRestoringKey(null);
+    }
+  };
+
+  const handleRestoreCloudBackup = async (backup: CloudBackupInfo) => {
+    if (!onLoadBackup) {
+      toast.error('Restore function not available');
+      return;
+    }
+
+    setRestoringKey(backup.id);
+    try {
+      const data = await restoreFromCloudBackup<AppData>(backup.id);
+      if (data) {
+        onLoadBackup(data);
+        toast.success(`Restored from cloud: ${backup.name}`);
+      } else {
+        toast.error('Failed to load cloud backup');
+      }
+    } catch (error) {
+      console.error('Cloud restore failed:', error);
+      toast.error('Failed to restore from cloud');
     } finally {
       setRestoringKey(null);
     }
@@ -354,6 +440,9 @@ export function DoctorProfile({ profile, onSaveProfile, onLoadBackup }: DoctorPr
         </CardContent>
       </Card>
 
+      {/* Storage Status */}
+      <StorageIndicator appData={appData} onLoadFromCloud={onLoadBackup} />
+
       {/* Backup & Restore - Industry Standard GFS */}
       <Card className="border-blue-200">
         <CardHeader>
@@ -386,72 +475,133 @@ export function DoctorProfile({ profile, onSaveProfile, onLoadBackup }: DoctorPr
             </Button>
           </div>
 
-          {/* Backup Tabs */}
-          <Tabs defaultValue="hourly" className="w-full">
+          {/* Backup Tabs - 2 main tabs */}
+          <Tabs defaultValue="local" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="hourly" className="flex items-center gap-2">
+              <TabsTrigger value="local" className="flex items-center gap-2">
                 <Clock className="w-4 h-4" />
-                Per Jam ({hourlyBackups.length}/24)
+                Lokal ({hourlyBackups.length + dailyBackups.length})
               </TabsTrigger>
-              <TabsTrigger value="daily" className="flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                Per Hari ({dailyBackups.length}/7)
+              <TabsTrigger value="cloud" className="flex items-center gap-2" disabled={!isCloudConnected}>
+                <CloudUpload className="w-4 h-4" />
+                ☁️ Cloud ({cloudHourlyBackups.length + cloudDailyBackups.length})
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="hourly" className="mt-4">
-              <div className="border rounded-lg overflow-hidden max-h-[300px] overflow-y-auto">
-                {renderBackupList(hourlyBackups, 'Belum ada backup per jam. Backup dibuat otomatis setiap jam pertama ada perubahan.')}
+            <TabsContent value="local" className="mt-4 space-y-4">
+              {/* Local Hourly */}
+              <div>
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <Clock className="w-4 h-4" /> Per Jam ({hourlyBackups.length}/24)
+                </h4>
+                <div className="border rounded-lg overflow-hidden max-h-[200px] overflow-y-auto">
+                  {renderBackupList(hourlyBackups, 'Belum ada backup per jam.')}
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                💡 Backup per jam dibuat saat pertama kali ada perubahan di jam tersebut. Tidak akan tertimpa oleh edit2 berikutnya di jam yang sama.
+              {/* Local Daily */}
+              <div>
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <Calendar className="w-4 h-4" /> Per Hari ({dailyBackups.length}/7)
+                </h4>
+                <div className="border rounded-lg overflow-hidden max-h-[200px] overflow-y-auto">
+                  {renderBackupList(dailyBackups, 'Belum ada backup harian.')}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                💡 Backup lokal disimpan di browser (IndexedDB). Bisa hilang jika browser dibersihkan.
               </p>
             </TabsContent>
 
-            <TabsContent value="daily" className="mt-4">
-              <div className="border rounded-lg overflow-hidden max-h-[300px] overflow-y-auto">
-                {renderBackupList(dailyBackups, 'Belum ada backup harian. Backup dibuat otomatis setiap hari pertama ada perubahan.')}
+            <TabsContent value="cloud" className="mt-4 space-y-4">
+              {!isCloudConnected ? (
+                <div className="p-4 text-center text-muted-foreground border rounded-lg">
+                  <CloudUpload className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>Login ke Google Drive untuk akses cloud backup.</p>
+                  <p className="text-xs mt-1">Lihat "Penyimpanan Data" di atas.</p>
+                </div>
+              ) : isLoadingCloudBackups ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+                  Memuat backup cloud...
+                </div>
+              ) : (
+                <>
+                  {/* Cloud Hourly */}
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                      <Clock className="w-4 h-4" /> Per Jam ({cloudHourlyBackups.length}/24)
+                    </h4>
+                    <div className="border rounded-lg overflow-hidden max-h-[200px] overflow-y-auto">
+                      {cloudHourlyBackups.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground text-center">Belum ada backup per jam di cloud.</div>
+                      ) : (
+                        cloudHourlyBackups.map((backup) => (
+                          <div key={backup.id} className="flex items-center justify-between p-2 hover:bg-gray-50 border-b last:border-b-0">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center">
+                                <Clock className="w-3 h-3" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">{backup.name.replace('backup_hourly_', '').replace('.json', '')}</p>
+                                <p className="text-xs text-muted-foreground">{formatDate(backup.timestamp.toISOString())}</p>
+                              </div>
+                            </div>
+                            <Button size="sm" variant="outline" onClick={() => handleRestoreCloudBackup(backup)} disabled={restoringKey !== null}>
+                              {restoringKey === backup.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Restore'}
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  {/* Cloud Daily */}
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                      <Calendar className="w-4 h-4" /> Per Hari ({cloudDailyBackups.length}/7)
+                    </h4>
+                    <div className="border rounded-lg overflow-hidden max-h-[200px] overflow-y-auto">
+                      {cloudDailyBackups.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground text-center">Belum ada backup harian di cloud.</div>
+                      ) : (
+                        cloudDailyBackups.map((backup) => (
+                          <div key={backup.id} className="flex items-center justify-between p-2 hover:bg-gray-50 border-b last:border-b-0">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-green-100 text-green-700 flex items-center justify-center">
+                                <Calendar className="w-3 h-3" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">{backup.name.replace('backup_daily_', '').replace('.json', '')}</p>
+                                <p className="text-xs text-muted-foreground">{formatDate(backup.timestamp.toISOString())}</p>
+                              </div>
+                            </div>
+                            <Button size="sm" variant="outline" onClick={() => handleRestoreCloudBackup(backup)} disabled={restoringKey !== null}>
+                              {restoringKey === backup.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Restore'}
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={loadCloudBackupList} disabled={isLoadingCloudBackups || !isCloudConnected}>
+                  <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingCloudBackups ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleForceCloudBackup} disabled={isBackingUp || !isCloudConnected}>
+                  <CloudUpload className={`w-4 h-4 mr-1 ${isBackingUp ? 'animate-spin' : ''}`} />
+                  Buat Backup
+                </Button>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                💡 Backup harian disimpan 7 hari terakhir. Ini adalah backup yang paling aman untuk recovery jangka panjang.
+              <p className="text-xs text-muted-foreground">
+                ☁️ Backup cloud tersimpan di Google Drive. Data lengkap tanpa limit browser!
               </p>
             </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
 
-      {/* Advanced Data Tools */}
-      <Card className="border-orange-200">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-orange-700">
-            <AlertTriangle className="w-6 h-6" />
-            Alat Data Lanjutan
-          </CardTitle>
-          <CardDescription>
-            Alat darurat untuk rescue data jika backup normal tidak tersedia.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg mb-4">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="w-5 h-5 text-orange-600 mt-0.5" />
-              <p className="text-sm text-orange-800">
-                <strong>Perhatian:</strong> Gunakan "Rescue Data" hanya jika backup normal tidak berfungsi. Fitur ini akan mengunduh SEMUA data mentah dari database.
-              </p>
-            </div>
-          </div>
-
-          <Button
-            variant="outline"
-            onClick={handleRescueData}
-            disabled={isRescuing}
-            className="border-orange-300 text-orange-700 hover:bg-orange-50"
-          >
-            <Download className={`w-4 h-4 mr-2 ${isRescuing ? 'animate-bounce' : ''}`} />
-            Rescue Data (Unduh Semua)
-          </Button>
-        </CardContent>
-      </Card>
     </div>
   );
 }

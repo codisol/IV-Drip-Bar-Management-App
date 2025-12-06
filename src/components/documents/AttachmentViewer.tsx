@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Image as ImageIcon, FileText, X, Download, Maximize2 } from 'lucide-react';
+import { Image as ImageIcon, FileText, X, Download } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AttachmentViewerProps {
@@ -22,7 +22,7 @@ export function AttachmentViewer({ attachments, title = 'Attachments' }: Attachm
       console.error('Invalid URL provided:', url);
       return;
     }
-    
+
     if (url.startsWith('data:image') || url.startsWith('data:image/')) {
       setSelectedImage(url);
       setPreviewOpen(true);
@@ -50,11 +50,11 @@ export function AttachmentViewer({ attachments, title = 'Attachments' }: Attachm
       console.error('Invalid URL for download:', url);
       return;
     }
-    
+
     try {
       const link = document.createElement('a');
       link.href = url;
-      
+
       // Determine file extension
       let extension = 'pdf';
       if (url.startsWith('data:image') || url.startsWith('data:image/')) {
@@ -66,7 +66,7 @@ export function AttachmentViewer({ attachments, title = 'Attachments' }: Attachm
         const match = url.match(/\.(\w+)$/i);
         extension = match ? match[1] : 'pdf';
       }
-      
+
       link.download = `attachment-${index + 1}.${extension}`;
       document.body.appendChild(link);
       link.click();
@@ -88,10 +88,10 @@ export function AttachmentViewer({ attachments, title = 'Attachments' }: Attachm
             const isBase64PDF = url.startsWith('data:application/pdf') || url.startsWith('data:application/pdf;base64');
             const isImageFile = url.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i);
             const isPDFFile = url.endsWith('.pdf') || url.includes('application/pdf');
-            
+
             const isImage = isBase64Image || !!isImageFile;
             const isPDF = isBase64PDF || isPDFFile;
-            
+
             return (
               <div
                 key={idx}
@@ -109,9 +109,7 @@ export function AttachmentViewer({ attachments, title = 'Attachments' }: Attachm
                         e.currentTarget.style.display = 'none';
                       }}
                     />
-                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center pointer-events-none">
-                      <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
+
                     {/* Download button - always visible, top-right with high z-index */}
                     <Button
                       variant="ghost"
