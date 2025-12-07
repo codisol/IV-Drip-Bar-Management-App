@@ -99,39 +99,18 @@ export function CloudSyncIndicator({ appData, onLoadFromCloud }: CloudSyncIndica
                 setGoogleEmail(email);
                 setAutoSyncEnabled(true);
 
-                const cloudData = await loadFromGoogleDrive<AppData>();
-                if (cloudData && onLoadFromCloud) {
-                    // Check if cloud has more data
-                    const localPatients = appData.patients?.length || 0;
-                    const cloudPatients = cloudData.patients?.length || 0;
+                // Automatically merge local and cloud data (no dialog)
+                const mergeResult = await smartMergeAndSync(appData);
+                if (mergeResult && onLoadFromCloud) {
+                    onLoadFromCloud(mergeResult.merged as AppData);
 
-                    if (cloudPatients > localPatients) {
-                        toast.info(
-                            <div className="space-y-2">
-                                <p><strong>Data ditemukan di Cloud</strong></p>
-                                <p className="text-sm">Cloud: {cloudPatients}, Lokal: {localPatients}</p>
-                                <div className="flex gap-2 mt-2">
-                                    <Button size="sm" variant="default" onClick={() => {
-                                        onLoadFromCloud(cloudData);
-                                        toast.dismiss();
-                                        toast.success('Data dimuat dari Cloud');
-                                    }}>
-                                        Muat Cloud
-                                    </Button>
-                                    <Button size="sm" variant="outline" onClick={() => {
-                                        toast.dismiss();
-                                    }}>
-                                        Pakai Lokal
-                                    </Button>
-                                </div>
-                            </div>,
-                            { duration: 15000 }
-                        );
+                    if (mergeResult.newItemsCount > 0) {
+                        toast.success(`Terhubung sebagai ${email} • ${mergeResult.newItemsCount} item digabung`);
                     } else {
-                        await saveToGoogleDrive(appData);
                         toast.success(`Terhubung sebagai ${email}`);
                     }
                 } else {
+                    // No cloud data, upload local
                     await saveToGoogleDrive(appData);
                     toast.success(`Terhubung sebagai ${email}`);
                 }

@@ -173,33 +173,18 @@ export function StorageIndicator({ appData, onLoadFromCloud }: StorageIndicatorP
                 setGoogleEmail(email);
                 setAutoSyncEnabled(true);
 
-                const cloudData = await loadFromGoogleDrive<AppData>();
-                if (cloudData && onLoadFromCloud) {
-                    toast.info(
-                        <div className="space-y-2">
-                            <p><strong>Data ditemukan di Google Drive</strong></p>
-                            <p className="text-sm">Pilih sumber data:</p>
-                            <div className="flex gap-2 mt-2">
-                                <Button size="sm" variant="default" onClick={() => {
-                                    onLoadFromCloud(cloudData);
-                                    toast.dismiss();
-                                    toast.success('Data dimuat dari Google Drive');
-                                }}>
-                                    Muat dari Cloud
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={async () => {
-                                    await saveToGoogleDrive(appData);
-                                    setLastSyncTime(new Date());
-                                    toast.dismiss();
-                                    toast.success('Data lokal disimpan ke Google Drive');
-                                }}>
-                                    Gunakan Lokal
-                                </Button>
-                            </div>
-                        </div>,
-                        { duration: 15000 }
-                    );
+                // Automatically merge local and cloud data (no dialog)
+                const mergeResult = await smartMergeAndSync(appData);
+                if (mergeResult && onLoadFromCloud) {
+                    onLoadFromCloud(mergeResult.merged as AppData);
+
+                    if (mergeResult.newItemsCount > 0) {
+                        toast.success(`Terhubung sebagai ${email} • ${mergeResult.newItemsCount} item lokal digabung`);
+                    } else {
+                        toast.success(`Terhubung ke Google Drive sebagai ${email}`);
+                    }
                 } else {
+                    // No cloud data yet, just upload local
                     await saveToGoogleDrive(appData);
                     setLastSyncTime(new Date());
                     toast.success(`Terhubung ke Google Drive sebagai ${email}`);

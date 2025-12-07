@@ -68,43 +68,41 @@ export default function App() {
           }
         }
 
-        // Check if we should load from Google Drive (if signed in)
+        // Check if we should merge with Google Drive (if signed in)
         // This runs after a short delay to let Google APIs initialize
         setTimeout(async () => {
           try {
-            const { isSignedIn, loadFromGoogleDrive, getLocalDataStats } = await import('./utils/googleDrive');
+            const { isSignedIn, smartMergeAndSync } = await import('./utils/googleDrive');
 
             if (isSignedIn()) {
-              const cloudData = await loadFromGoogleDrive<AppData>();
+              // Use smart merge: cloud as base + add new local items
+              const mergeResult = await smartMergeAndSync(localData || {});
 
-              if (cloudData) {
-                // Compare cloud vs local data
-                const localPatients = localData?.patients?.length || 0;
-                const cloudPatients = cloudData.patients?.length || 0;
-                const localTransactions = localData?.transactions?.length || 0;
-                const cloudTransactions = cloudData.transactions?.length || 0;
+              if (mergeResult) {
+                const mergedData = mergeResult.merged as AppData;
 
-                // If cloud has significantly more data, use cloud (reservoir > cache)
-                if (cloudPatients > localPatients * 1.1 || cloudTransactions > localTransactions * 1.1) {
-                  console.log(`Cloud has more data (${cloudPatients} patients vs ${localPatients} local). Loading from cloud.`);
+                // Apply migrations to merged data
+                if (!mergedData.transactions) mergedData.transactions = [];
+                if (!mergedData.referralLetters) mergedData.referralLetters = [];
+                if (!mergedData.prescriptions) mergedData.prescriptions = [];
+                if (!mergedData.fitnessCertificates) mergedData.fitnessCertificates = [];
+                if (!mergedData.doctorProfile) mergedData.doctorProfile = undefined;
 
-                  // Apply same migrations to cloud data
-                  if (!cloudData.transactions) cloudData.transactions = [];
-                  if (!cloudData.referralLetters) cloudData.referralLetters = [];
-                  if (!cloudData.prescriptions) cloudData.prescriptions = [];
-                  if (!cloudData.fitnessCertificates) cloudData.fitnessCertificates = [];
-                  if (!cloudData.doctorProfile) cloudData.doctorProfile = undefined;
+                setAppData(mergedData);
 
-                  setAppData(cloudData);
-                  toast.success(`Data dimuat dari Cloud (${cloudPatients} pasien, ${cloudTransactions} transaksi)`);
-
-                  // Also update IndexedDB cache with complete data
-                  await saveToDB(cloudData);
+                // Show appropriate message based on what happened
+                if (mergeResult.newItemsCount > 0) {
+                  toast.success(`Sync: ${mergeResult.newItemsCount} item lokal baru digabung ke cloud`);
+                } else {
+                  console.log('Smart merge: no new local items, using cloud data');
                 }
+
+                // Also update IndexedDB cache with merged data
+                await saveToDB(mergedData);
               }
             }
           } catch (err) {
-            console.error('Cloud check failed:', err);
+            console.error('Cloud sync failed:', err);
           }
         }, 2000); // Wait for Google APIs to init
 
