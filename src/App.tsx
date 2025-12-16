@@ -222,7 +222,7 @@ export default function App() {
       inventoryTransactions: [
         ...prev.inventoryTransactions,
         {
-          id: `INVTRANS-${Date.now()}-${Math.random()}`,
+          id: crypto.randomUUID(),
           inventoryItemId,
           type: 'OUT',
           quantity,

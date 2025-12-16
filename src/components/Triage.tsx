@@ -60,16 +60,16 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
   });
   const [filterStatus, setFilterStatus] = useState<'All' | 'Waiting' | 'In Progress' | 'Completed'>('All');
   const [refreshKey, setRefreshKey] = useState(0);
-  
+
   // Force refresh every minute to update waiting times
   useEffect(() => {
     const interval = setInterval(() => {
       setRefreshKey(prev => prev + 1);
     }, 60000); // 60 seconds
-    
+
     return () => clearInterval(interval);
   }, []);
-  
+
   // Confirmation dialog states
   const [confirmAction, setConfirmAction] = useState<{
     open: boolean;
@@ -80,7 +80,7 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
     open: false,
     title: '',
     description: '',
-    onConfirm: () => {}
+    onConfirm: () => { }
   });
 
   const resetForm = () => {
@@ -100,14 +100,14 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     let patientId = selectedPatientId;
     let patientName = '';
 
     // Quick registration if needed
     if (isQuickRegister && quickName.trim()) {
       const quickPatient: Patient = {
-        id: `quick-${quickName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+        id: crypto.randomUUID(),
         name: quickName.trim(),
         phone: '',
         gender: 'Other',
@@ -131,7 +131,7 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
     const hasVitals = vitals.bloodPressure || vitals.heartRate || vitals.temperature || vitals.oxygenSaturation;
 
     let newTriage: TriageEntry = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       patientId,
       patientName,
       level: triageLevel,
@@ -150,7 +150,7 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
     // Immediately create a transaction when adding to triage
     if (onCreateTransaction) {
       const transaction: Transaction = {
-        id: `TXN-${Date.now()}`,
+        id: crypto.randomUUID(),
         patientId,
         patientName,
         time: new Date().toISOString(),
@@ -202,7 +202,7 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
     const endTime = completedAt ? new Date(completedAt) : new Date();
     const diffMs = endTime.getTime() - arrival.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    
+
     if (diffMins < 60) {
       return `${diffMins} min`;
     } else {
@@ -215,11 +215,11 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
   const handleStatusChange = (id: string, newStatus: 'Waiting' | 'In Progress' | 'Completed') => {
     const entry = triageQueue.find(e => e.id === id);
     if (!entry) return;
-    
+
     const patient = patients.find(p => p.id === entry.patientId);
     let confirmTitle = '';
     let confirmDescription = '';
-    
+
     if (newStatus === 'In Progress') {
       confirmTitle = 'Start Treatment?';
       confirmDescription = `Are you sure you want to start treatment for ${patient?.name || 'this patient'}? This will move them from the waiting queue to active treatment.`;
@@ -233,7 +233,7 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
       toast.success(`Status updated to ${newStatus}`);
       return;
     }
-    
+
     setConfirmAction({
       open: true,
       title: confirmTitle,
@@ -257,7 +257,7 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
     // Sort by: 1) Status (Waiting first), 2) Priority level, 3) Arrival time
     const statusOrder = { 'Waiting': 0, 'In Progress': 1, 'Completed': 2 };
     const levelOrder = { 'Priority': 0, 'Standard': 1, 'Wellness': 2 };
-    
+
     if (a.status !== b.status) {
       return statusOrder[a.status] - statusOrder[b.status];
     }
@@ -597,7 +597,7 @@ export function Triage({ triageQueue, patients, onAddTriage, onUpdateTriage, onQ
       </Card>
 
       {/* Confirmation Dialog */}
-  <AlertDialog open={confirmAction.open} onOpenChange={(open: boolean) => setConfirmAction({ ...confirmAction, open })}>
+      <AlertDialog open={confirmAction.open} onOpenChange={(open: boolean) => setConfirmAction({ ...confirmAction, open })}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirmAction.title}</AlertDialogTitle>

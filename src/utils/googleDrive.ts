@@ -877,6 +877,9 @@ export async function smartMergeAndSync<T extends {
         const merged = { ...cloudData } as T;
 
         // HIPAA-compliant patient merge with ID remapping
+        // Includes Intra-Batch Deduplication (Simulated Re-entry):
+        // As we process local patients, we add newly accepted ones to the lookup.
+        // This catches duplicates created offline against each other, not just vs cloud.
         const mergePatients = (
             cloudPatients: Array<{ id: string; fullName?: string; dateOfBirth?: string }> | undefined,
             localPatients: Array<{ id: string; fullName?: string; dateOfBirth?: string }> | undefined
@@ -884,34 +887,37 @@ export async function smartMergeAndSync<T extends {
             if (!localPatients || localPatients.length === 0) return cloudPatients || [];
             if (!cloudPatients || cloudPatients.length === 0) return localPatients;
 
-            // Create lookup: content key → cloud patient ID
-            const cloudPatientByKey = new Map<string, string>();
+            // Create lookup: content key → patient ID (starts with cloud, grows with accepted local)
+            const patientByKey = new Map<string, string>();
             cloudPatients.forEach(p => {
                 const key = `${(p.fullName || '').toLowerCase().trim()}|${p.dateOfBirth || ''}`;
-                cloudPatientByKey.set(key, p.id);
+                patientByKey.set(key, p.id);
             });
 
-            const cloudIds = new Set(cloudPatients.map(p => p.id));
+            const existingIds = new Set(cloudPatients.map(p => p.id));
 
             const newPatients: typeof localPatients = [];
 
             localPatients.forEach(p => {
                 // Skip if ID already exists
-                if (cloudIds.has(p.id)) return;
+                if (existingIds.has(p.id)) return;
 
-                // Check for content duplicate
+                // Check for content duplicate (against cloud AND previously processed local)
                 const key = `${(p.fullName || '').toLowerCase().trim()}|${p.dateOfBirth || ''}`;
-                const existingCloudId = cloudPatientByKey.get(key);
+                const existingId = patientByKey.get(key);
 
-                if (existingCloudId) {
+                if (existingId) {
                     // Content duplicate! Create ID remapping
-                    patientIdRemap.set(p.id, existingCloudId);
-                    console.log(`Patient remap: ${p.id} → ${existingCloudId} (${p.fullName})`);
+                    patientIdRemap.set(p.id, existingId);
+                    console.log(`Patient remap: ${p.id} → ${existingId} (${p.fullName})`);
                     skippedDuplicates++;
                 } else {
-                    // Truly new patient
+                    // Truly new patient - accept it
                     newPatients.push(p);
                     newItemsCount++;
+                    // CRITICAL: Add to lookup for intra-batch deduplication
+                    patientByKey.set(key, p.id);
+                    existingIds.add(p.id);
                 }
             });
 

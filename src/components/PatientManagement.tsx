@@ -4,11 +4,11 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, UserPlus, Edit, Phone, Calendar } from 'lucide-react';
+import { Search, UserPlus, Edit, Phone, Calendar, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PatientManagementProps {
@@ -27,10 +27,33 @@ export function PatientManagement({ patients, onAddPatient, onUpdatePatient }: P
     gender: 'Male' as 'Male' | 'Female' | 'Other',
     dob: ''
   });
+  const [duplicateWarning, setDuplicateWarning] = useState<Patient | null>(null);
+
+  // Check if a patient with same name and DOB exists
+  const findDuplicatePatient = () => {
+    const trimmedName = formData.name.toLowerCase().trim();
+    return patients.find(p =>
+      p.name.toLowerCase().trim() === trimmedName && p.dob === formData.dob
+    );
+  };
+
+  const createAndAddPatient = () => {
+    const newPatient: Patient = {
+      id: crypto.randomUUID(),
+      ...formData,
+      createdAt: new Date().toISOString(),
+      isQuickRegistration: false
+    };
+    onAddPatient(newPatient);
+    toast.success('Pasien berhasil didaftarkan');
+    setIsDialogOpen(false);
+    setEditingPatient(null);
+    setFormData({ name: '', phone: '', gender: 'Male', dob: '' });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.name || !formData.phone || !formData.dob) {
       toast.error('Harap isi semua field yang wajib');
       return;
@@ -44,20 +67,18 @@ export function PatientManagement({ patients, onAddPatient, onUpdatePatient }: P
         isQuickRegistration: false
       });
       toast.success('Pasien berhasil diperbarui');
+      setIsDialogOpen(false);
+      setEditingPatient(null);
+      setFormData({ name: '', phone: '', gender: 'Male', dob: '' });
     } else {
-      const newPatient: Patient = {
-        id: `${formData.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
-        ...formData,
-        createdAt: new Date().toISOString(),
-        isQuickRegistration: false
-      };
-      onAddPatient(newPatient);
-      toast.success('Pasien berhasil didaftarkan');
+      // Check for duplicate before adding
+      const duplicate = findDuplicatePatient();
+      if (duplicate) {
+        setDuplicateWarning(duplicate);
+        return; // Don't add yet, show warning dialog
+      }
+      createAndAddPatient();
     }
-
-    setIsDialogOpen(false);
-    setEditingPatient(null);
-    setFormData({ name: '', phone: '', gender: 'Male', dob: '' });
   };
 
   const handleEdit = (patient: Patient) => {
@@ -228,6 +249,42 @@ export function PatientManagement({ patients, onAddPatient, onUpdatePatient }: P
           </div>
         </CardContent>
       </Card>
+
+      {/* Duplicate Patient Warning Dialog */}
+      <Dialog open={duplicateWarning !== null} onOpenChange={(open) => !open && setDuplicateWarning(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="w-5 h-5" />
+              Pasien Mungkin Sudah Ada
+            </DialogTitle>
+            <DialogDescription>
+              Pasien dengan nama dan tanggal lahir yang sama sudah terdaftar:
+            </DialogDescription>
+          </DialogHeader>
+          {duplicateWarning && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
+              <p><strong>Nama:</strong> {duplicateWarning.name}</p>
+              <p><strong>Tgl. Lahir:</strong> {duplicateWarning.dob}</p>
+              <p><strong>ID:</strong> <span className="font-mono text-xs">{duplicateWarning.id}</span></p>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDuplicateWarning(null)}>
+              Batal
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setDuplicateWarning(null);
+                createAndAddPatient();
+              }}
+            >
+              Tetap Daftarkan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
