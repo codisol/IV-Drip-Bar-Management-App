@@ -881,8 +881,8 @@ export async function smartMergeAndSync<T extends {
         // As we process local patients, we add newly accepted ones to the lookup.
         // This catches duplicates created offline against each other, not just vs cloud.
         const mergePatients = (
-            cloudPatients: Array<{ id: string; fullName?: string; dateOfBirth?: string }> | undefined,
-            localPatients: Array<{ id: string; fullName?: string; dateOfBirth?: string }> | undefined
+            cloudPatients: Array<{ id: string; name?: string; fullName?: string; dob?: string; dateOfBirth?: string }> | undefined,
+            localPatients: Array<{ id: string; name?: string; fullName?: string; dob?: string; dateOfBirth?: string }> | undefined
         ) => {
             if (!localPatients || localPatients.length === 0) return cloudPatients || [];
             if (!cloudPatients || cloudPatients.length === 0) return localPatients;
@@ -890,7 +890,7 @@ export async function smartMergeAndSync<T extends {
             // Create lookup: content key → patient ID (starts with cloud, grows with accepted local)
             const patientByKey = new Map<string, string>();
             cloudPatients.forEach(p => {
-                const key = `${(p.fullName || '').toLowerCase().trim()}|${p.dateOfBirth || ''}`;
+                const key = `${(p.name || p.fullName || '').toLowerCase().trim()}|${p.dob || p.dateOfBirth || ''}`;
                 patientByKey.set(key, p.id);
             });
 
@@ -903,13 +903,13 @@ export async function smartMergeAndSync<T extends {
                 if (existingIds.has(p.id)) return;
 
                 // Check for content duplicate (against cloud AND previously processed local)
-                const key = `${(p.fullName || '').toLowerCase().trim()}|${p.dateOfBirth || ''}`;
+                const key = `${(p.name || p.fullName || '').toLowerCase().trim()}|${p.dob || p.dateOfBirth || ''}`;
                 const existingId = patientByKey.get(key);
 
                 if (existingId) {
                     // Content duplicate! Create ID remapping
                     patientIdRemap.set(p.id, existingId);
-                    console.log(`Patient remap: ${p.id} → ${existingId} (${p.fullName})`);
+                    console.log(`Patient remap: ${p.id} → ${existingId} (${p.name || p.fullName})`);
                     skippedDuplicates++;
                 } else {
                     // Truly new patient - accept it
@@ -1007,8 +1007,8 @@ export async function smartMergeAndSync<T extends {
         // 1. First merge patients to build the ID remap
         if (localData.patients) {
             merged.patients = mergePatients(
-                cloudData.patients as Array<{ id: string; fullName?: string; dateOfBirth?: string }>,
-                localData.patients as Array<{ id: string; fullName?: string; dateOfBirth?: string }>
+                cloudData.patients as Array<{ id: string; name?: string; fullName?: string; dob?: string; dateOfBirth?: string }>,
+                localData.patients as Array<{ id: string; name?: string; fullName?: string; dob?: string; dateOfBirth?: string }>
             ) as T['patients'];
         }
 

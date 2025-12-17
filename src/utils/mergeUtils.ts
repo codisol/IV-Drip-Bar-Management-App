@@ -6,8 +6,10 @@
 
 export interface PatientLike {
     id: string;
-    fullName?: string;
-    dateOfBirth?: string;
+    name?: string;           // Actual Patient field
+    fullName?: string;       // Backwards compatibility
+    dob?: string;            // Actual Patient field
+    dateOfBirth?: string;    // Backwards compatibility
 }
 
 export interface MergeResult<T> {
@@ -42,7 +44,7 @@ export function mergePatients<T extends PatientLike>(
         localPatients.forEach(p => {
             if (existingIds.has(p.id)) return;
 
-            const key = `${(p.fullName || '').toLowerCase().trim()}|${p.dateOfBirth || ''}`;
+            const key = `${(p.name || p.fullName || '').toLowerCase().trim()}|${p.dob || p.dateOfBirth || ''}`;
             const existingId = seen.get(key);
 
             if (existingId) {
@@ -61,7 +63,7 @@ export function mergePatients<T extends PatientLike>(
     // Create lookup: content key → patient ID (starts with cloud, grows with accepted local)
     const patientByKey = new Map<string, string>();
     cloudPatients.forEach(p => {
-        const key = `${(p.fullName || '').toLowerCase().trim()}|${p.dateOfBirth || ''}`;
+        const key = `${(p.name || p.fullName || '').toLowerCase().trim()}|${p.dob || p.dateOfBirth || ''}`;
         patientByKey.set(key, p.id);
     });
 
@@ -74,7 +76,7 @@ export function mergePatients<T extends PatientLike>(
         if (existingIds.has(p.id)) return;
 
         // Check for content duplicate (against cloud AND previously processed local)
-        const key = `${(p.fullName || '').toLowerCase().trim()}|${p.dateOfBirth || ''}`;
+        const key = `${(p.name || p.fullName || '').toLowerCase().trim()}|${p.dob || p.dateOfBirth || ''}`;
         const existingId = patientByKey.get(key);
 
         if (existingId) {
